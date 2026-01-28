@@ -20,7 +20,26 @@
 }
 
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+/* ensure clean white export area */
+.workspace-capture {
+  padding: 12px;
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+.workspace-capture *,
+.workspace-capture *::before,
+.workspace-capture *::after {
+  background-image: none !important;
 }

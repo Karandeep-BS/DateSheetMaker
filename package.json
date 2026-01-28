@@ -9,9 +9,15 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "html2canvas-pro": "^1.6.2",
+    "jspdf": "^3.0.4",
+    "jspdf-autotable": "^5.0.2",
+    "multer": "^2.0.2",
     "next": "16.0.10",
     "react": "19.2.1",
-    "react-dom": "19.2.1"
+    "react-dom": "19.2.1",
+    "sweetalert2": "^11.26.17",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
