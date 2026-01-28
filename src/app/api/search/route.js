@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
-import path from "path";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
@@ -15,7 +14,9 @@ export async function POST(req) {
 
     const SEARCH = query.trim().toLowerCase();
 
-    const uploadDir = path.join(process.cwd(), "uploads");
+    // ✅ MUST be /tmp on Vercel
+    const uploadDir = "/tmp/uploads";
+
     if (!fs.existsSync(uploadDir)) {
       return NextResponse.json({ rows: [], headers: [] });
     }
@@ -25,7 +26,8 @@ export async function POST(req) {
       return NextResponse.json({ rows: [], headers: [] });
     }
 
-    const filePath = path.join(uploadDir, files[files.length - 1]);
+    // Use latest uploaded file
+    const filePath = `${uploadDir}/${files[files.length - 1]}`;
     const fileBuffer = fs.readFileSync(filePath);
 
     const workbook = XLSX.read(fileBuffer, { type: "buffer", cellDates: true });
@@ -39,8 +41,9 @@ export async function POST(req) {
     });
 
     const headerRowIndex = allRows.findIndex(
-      (row) => row[0]?.toString().trim().toLowerCase() === "date"
+      row => row[0]?.toString().trim().toLowerCase() === "date"
     );
+
     if (headerRowIndex === -1) {
       return NextResponse.json({ rows: [], headers: [] });
     }
@@ -49,58 +52,43 @@ export async function POST(req) {
     const dataRows = allRows.slice(headerRowIndex + 1);
 
     const dateColIndex = headers.findIndex(
-      (h) => h.toString().trim().toLowerCase() === "date"
+      h => h.toString().trim().toLowerCase() === "date"
     );
 
-    const formattedRows = dataRows.map((row) => {
-      const newRow = [...row];
-      const v = newRow[dateColIndex];
+    const formattedRows = dataRows.map(row => {
+      const r = [...row];
+      const v = r[dateColIndex];
 
       if (v instanceof Date) {
-        newRow[dateColIndex] = v.toISOString().slice(0, 10);
+        r[dateColIndex] = v.toISOString().slice(0, 10);
       } else if (typeof v === "number") {
         const parsed = XLSX.SSF.parse_date_code(v);
         if (parsed) {
           const d = new Date(parsed.y, parsed.m - 1, parsed.d);
-          newRow[dateColIndex] = d.toISOString().slice(0, 10);
+          r[dateColIndex] = d.toISOString().slice(0, 10);
         }
       }
-
-      return newRow;
+      return r;
     });
 
     let matchedRows = [];
 
     if (column && column.toLowerCase() !== "all") {
       const columnIndex = headers.findIndex(
-        (h) => h.toString().trim().toLowerCase() === column.toLowerCase()
+        h => h.toString().trim().toLowerCase() === column.toLowerCase()
       );
+
       if (columnIndex === -1) {
         return NextResponse.json({ rows: [], headers });
       }
 
-      // exact match (case-insensitive), not contains
-      matchedRows = formattedRows.filter((row) => {
-        const cellValue = row[columnIndex]?.toString().trim().toLowerCase() || "";
-        return cellValue === SEARCH;
-      });
-
-      if (!matchedRows.length) {
-        return NextResponse.json({
-          rows: [],
-          headers,
-          error: `Value not found in ${column}`,
-        });
-      }
+      matchedRows = formattedRows.filter(row =>
+        row[columnIndex]?.toString().trim().toLowerCase() === SEARCH
+      );
     } else {
-      // "All" → search all cells, still contains search
-      matchedRows = formattedRows.filter((row) =>
-        row.some((cell) =>
-          cell
-            ?.toString()
-            .trim()
-            .toLowerCase()
-            .includes(SEARCH)
+      matchedRows = formattedRows.filter(row =>
+        row.some(cell =>
+          cell?.toString().toLowerCase().includes(SEARCH)
         )
       );
     }
