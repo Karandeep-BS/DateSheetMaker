@@ -1,4 +1,5 @@
-// app/api/upload/route.js - PDF/Excel upload WITHOUT pdf-parse
+// app/api/upload/route.js
+// PDF / Excel upload WITHOUT pdf-parse (Vercel safe)
 
 import { NextResponse } from "next/server";
 import fs from "fs";
@@ -19,7 +20,8 @@ export async function POST(req) {
       );
     }
 
-    const uploadDir = path.join(process.cwd(), "uploads");
+    // ✅ Vercel: only /tmp is writable
+    const uploadDir = "/tmp/uploads";
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -27,15 +29,22 @@ export async function POST(req) {
     const fileName = file.name.toLowerCase();
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // 1) Excel (.xlsx / .xls) - Direct processing
+    /* =========================
+       1) EXCEL (.xlsx / .xls)
+       ========================= */
     if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+      // (Optional) Save temporarily
       const excelPath = path.join(uploadDir, file.name);
       fs.writeFileSync(excelPath, buffer);
-      console.log("✅ Excel file saved:", excelPath);
 
-      const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+      const workbook = XLSX.read(buffer, {
+        type: "buffer",
+        cellDates: true,
+      });
+
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
+
       const allRows = XLSX.utils.sheet_to_json(sheet, {
         header: 1,
         defval: "",
@@ -49,108 +58,117 @@ export async function POST(req) {
         success: true,
         message: "Excel file uploaded successfully",
         headers,
-        rows, // Send ALL rows data
+        rows,
         rowCount: rows.length,
         fileName: file.name,
       });
     }
 
-    // 2) PDF - Simple text extraction using built-in libraries
+    /* =========================
+       2) PDF → TEXT → EXCEL
+       ========================= */
     if (fileName.endsWith(".pdf")) {
-      // Basic PDF text extraction (works for simple PDFs with tables)
       const text = extractTextFromPDF(buffer);
       const { headers, rows } = parseTableFromText(text);
 
       if (!headers.length || rows.length === 0) {
         return NextResponse.json(
-          { 
-            success: false, 
-            error: "Could not extract table data from PDF. Try Excel format instead." 
+          {
+            success: false,
+            error:
+              "Could not extract table data from PDF. Try Excel format instead.",
           },
           { status: 400 }
         );
       }
 
-      // Save as Excel
+      // Convert to Excel
       const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, "Sheet1");
-      
-      const pdfExcelPath = path.join(uploadDir, "converted_" + Date.now() + ".xlsx");
-      XLSX.writeFile(workbook, pdfExcelPath);
-      console.log("✅ PDF converted to Excel:", pdfExcelPath);
+
+      const outputName = `converted_${Date.now()}.xlsx`;
+      const outputPath = path.join(uploadDir, outputName);
+      XLSX.writeFile(workbook, outputPath);
 
       return NextResponse.json({
         success: true,
         message: "PDF converted to Excel successfully",
         headers,
-        rows, // Send ALL rows data
+        rows,
         rowCount: rows.length,
-        fileName: "converted_" + Date.now() + ".xlsx",
+        fileName: outputName,
       });
     }
 
-    // 3) Unsupported
+    /* =========================
+       3) UNSUPPORTED FILE
+       ========================= */
     return NextResponse.json(
-      { 
-        success: false, 
-        error: "Only PDF and Excel (.xlsx, .xls) files are supported." 
+      {
+        success: false,
+        error: "Only PDF and Excel (.xlsx, .xls) files are supported.",
       },
       { status: 400 }
     );
   } catch (error) {
     console.error("UPLOAD ERROR:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Upload failed" },
+      {
+        success: false,
+        error: error.message || "Upload failed",
+      },
       { status: 500 }
     );
   }
 }
 
-// Simple PDF text extraction (no external deps)
+/* =========================
+   SIMPLE PDF TEXT EXTRACTION
+   ========================= */
 function extractTextFromPDF(buffer) {
   try {
-    // Convert buffer to string and extract readable text
     const pdfText = buffer.toString("latin1");
-    // Basic PDF text extraction - looks for text streams
-    const textMatches = pdfText.match(/BT[\s\S]*?ET/g) || [];
+    const textBlocks = pdfText.match(/BT[\s\S]*?ET/g) || [];
     let extractedText = "";
-    
-    for (const match of textMatches) {
-      // Extract text between ( and ) or TJ operators
-      const textContent = match.match(/\(([^)]+)\)/g) || [];
-      extractedText += textContent.join(" ") + "\n";
+
+    for (const block of textBlocks) {
+      const matches = block.match(/\(([^)]+)\)/g) || [];
+      extractedText += matches.join(" ") + "\n";
     }
-    
-    return extractedText.trim() || "";
+
+    return extractedText.trim();
   } catch {
     return "";
   }
 }
 
-// Parse table from extracted text
+/* =========================
+   PARSE TABLE FROM TEXT
+   ========================= */
 function parseTableFromText(text) {
-  const lines = text.split("\n").filter(l => l.trim().length > 1);
+  const lines = text
+    .split("\n")
+    .map(l => l.trim())
+    .filter(Boolean);
+
   if (lines.length < 2) return { headers: [], rows: [] };
 
-  // Use first non-empty line as headers
-  const headerLine = lines.find(line => line.trim().split(/\s+/).length > 1);
+  const headerLine = lines.find(l => l.split(/\s+/).length > 1);
   if (!headerLine) return { headers: [], rows: [] };
 
   const headers = headerLine
-    .trim()
     .split(/\s{2,}|\t+/)
     .map(h => h.trim())
     .filter(Boolean);
 
-  const rows = lines.slice(1, 20).map(line => { // Limit to first 20 rows
-    return line
-      .trim()
+  const rows = lines.slice(1, 20).map(line =>
+    line
       .split(/\s{2,}|\t+/)
       .map(c => c.trim())
       .slice(0, headers.length)
-      .concat(Array(headers.length).fill("")); // Pad shorter rows
-  }).filter(row => row.some(cell => cell));
+      .concat(Array(headers.length).fill(""))
+  );
 
   return { headers, rows };
 }
