@@ -1,8 +1,8 @@
 // app/api/upload/route.js - PDF/Excel upload WITHOUT pdf-parse
 
 import { NextResponse } from "next/server";
-// import fs from "fs";
-// import path from "path";
+import fs from "fs";
+import path from "path";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
